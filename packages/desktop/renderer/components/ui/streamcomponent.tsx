@@ -6,6 +6,7 @@ import Loader from './loader'
 import Card from './card'
 import uPlot from 'uplot'
 import Ipc from '../../lib/ipc'
+import { patchInputChannel } from '../../lib/mkb-patch'
 import { useTranslation } from 'react-i18next'
 
 interface StreamComponentProps {
@@ -76,6 +77,15 @@ function StreamComponent({
         Ipc.send('app', 'setFullscreen', { fullscreen: true }).catch((e) => {
             console.log('Failed to enter fullscreen:', e)
         })
+
+        // The input channel is created by xPlayer.bind(), which runs right after this component mounts
+        const patchTimer = setInterval(() => {
+            const input = (xPlayer as any).getChannelProcessor('input')
+            if (input !== undefined) {
+                clearInterval(patchTimer)
+                patchInputChannel(input)
+            }
+        }, 50)
 
         Ipc.onAction('streaming', 'onQueue', (event, waitingTimes) => {
             console.log('Waiting times:', waitingTimes)
@@ -221,10 +231,7 @@ function StreamComponent({
         }, 33)
 
         // Gamebar menu mouse events
-        let retriedLock = false
-
         const mouseEvent = () => {
-            retriedLock = false
             // While the pointer is locked the movement belongs to the game: don't show the bar
             if (document.pointerLockElement) return
             lastMovement = Date.now()
@@ -236,19 +243,7 @@ function StreamComponent({
             // Locked: hide the bar right away. Unlocked (Esc): show it so the buttons are reachable
             lastMovement = document.pointerLockElement ? 0 : Date.now()
         }
-        const pointerLockError = () => {
-            // Fallback: retry with the default lock if unadjustedMovement was rejected (once per click)
-            if (retriedLock || document.pointerLockElement) return
-            retriedLock = true
-            const video = document.querySelector('div#streamComponent video') as HTMLVideoElement | null
-            try {
-                (video?.requestPointerLock() as any)?.catch?.(() => {})
-            } catch (e) {
-                console.log('Pointer lock fallback failed:', e)
-            }
-        }
         document.addEventListener('pointerlockchange', pointerLockChange)
-        document.addEventListener('pointerlockerror', pointerLockError)
 
         const mouseInterval = setInterval(() => {
             const gamebarElement = document.getElementById('component_streamcomponent_gamebar')
@@ -284,7 +279,7 @@ function StreamComponent({
             window.removeEventListener('mousedown', mouseEvent)
             window.removeEventListener('keypress', keyboardPressEvent)
             document.removeEventListener('pointerlockchange', pointerLockChange)
-            document.removeEventListener('pointerlockerror', pointerLockError)
+            clearInterval(patchTimer)
             clearInterval(mouseInterval)
 
             // Leave fullscreen when the stream ends
