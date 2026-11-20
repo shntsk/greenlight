@@ -10,8 +10,14 @@ interface setPreferredGameLanguageArgs {
     language:string;
 }
 
+interface setFullscreenArgs {
+    fullscreen:boolean;
+}
+
 export default class IpcApp extends IpcBase {
     // _streamingSessions:any = {}
+
+    private _fullscreenBeforeStream = false
 
     loadCachedUser(){
         return new Promise((resolve) => {
@@ -107,6 +113,24 @@ export default class IpcApp extends IpcBase {
                 autoStream: this._application.getStartupFlags().autoStream,
             })
             this._application.getStartupFlags().autoStream = ''
+        })
+    }
+
+    setFullscreen(args:setFullscreenArgs){
+        return new Promise<boolean>((resolve) => {
+            const win = this._application._mainWindow
+
+            if(win !== undefined){
+                if(args.fullscreen){
+                    // Remember if the window was already fullscreen (e.g. started with --fullscreen)
+                    this._fullscreenBeforeStream = win.isFullScreen()
+                    win.setFullScreen(true)
+                } else if(!this._fullscreenBeforeStream){
+                    win.setFullScreen(false)
+                }
+            }
+
+            resolve(true)
         })
     }
 
