@@ -1,0 +1,78 @@
+name: Build (Arch + Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'packages/desktop/**'
+      - 'package.json'
+      - 'yarn.lock'
+      - '.github/workflows/build-arch-windows.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            builder_args: --win zip nsis --x64
+            artifact: greenlight-windows
+            paths: |
+              packages/desktop/dist/*.exe
+              packages/desktop/dist/*.zip
+          - name: Arch Linux
+            os: ubuntu-latest
+            builder_args: --linux pacman --x64
+            artifact: greenlight-arch
+            paths: |
+              packages/desktop/dist/*.pacman
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      # electron-builder's pacman target needs bsdtar
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Same flow as the "flatpak-build" script: build the app without packaging...
+      - name: Build app
+        run: yarn desktop build --no-pack
+
+      # ...then package it for the target platform
+      - name: Package
+        working-directory: packages/desktop
+        run: npx --no-install electron-builder ${{ matrix.builder_args }} --publish never
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.paths }}
+          if-no-files-found: error
+          retention-days: 14
